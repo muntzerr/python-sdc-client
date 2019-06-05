@@ -4,6 +4,7 @@ import requests
 import shutil
 import time
 import os
+import yaml
 
 from sdcclient._common import _SdcCommon
 
@@ -180,10 +181,12 @@ class SdSecureClient(_SdcCommon):
     def save_default_falco_rules_files(self, fsobj, save_dir):
         '''**Description**
             Given a dict returned from get_default_falco_rules_files, save those files to a set of files below save_dir.
-               The first level below save_dir is a directory with the tag name. The second level is a directory per file.
+               The first level below save_dir is a directory with the tag name and an optional default_policies.yaml file,
+               which groups rules into recommended default policies. The second level is a directory per file.
                The third level is a directory per variant. Finally the files are at the lowest level, in a file called "content".
             For example, using the example dict in get_default_falco_rules_files(), the directory layout would look like:
                 save_dir/
+                    default_policies.yaml
                     v1.5.9/
                         falco_rules.yaml/
                             29/
@@ -217,6 +220,10 @@ class SdSecureClient(_SdcCommon):
             os.makedirs(prefix)
         except Exception as e:
             return [False, "Could not create tag directory {}: {}".format(prefix, str(e))]
+
+        if "defaultPolicies" in fsobj:
+            with open(os.path.join(save_dir, "default_policies.yaml"), 'w') as outfile:
+                yaml.dump(fsobj["defaultPolicies"], outfile)
 
         if "files" in fsobj:
             for fobj in fsobj["files"]:
@@ -294,6 +301,7 @@ class SdSecureClient(_SdcCommon):
         '''
 
         tags = os.listdir(save_dir)
+        tags.remove("default_policies.yaml")
         if len(tags) != 1:
             return [False, "Directory {} did not contain exactly 1 entry".format(save_dir)]
 
@@ -302,7 +310,19 @@ class SdSecureClient(_SdcCommon):
         if not os.path.isdir(tpath):
             return [False, "Tag path {} is not a directory".format(tpath)]
 
+        defjson = ""
+        defpath = os.path.join(save_dir, "default_policies.yaml")
+        if os.path.exists(defpath):
+            try:
+                with open(defpath, "r") as infile:
+                    defjson = yaml.safe_load(infile)
+            except Exception as e:
+                return [False, "Could not load default_policies.yaml: " + exc]
+
         ret = {"tag": os.path.basename(tpath), "files": []}
+
+        if defjson != "":
+            ret["defaultPolicies"] = defjson
 
         for fdir in os.listdir(tpath):
             fpath = os.path.join(tpath, fdir)
